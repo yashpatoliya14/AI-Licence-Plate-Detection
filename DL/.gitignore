@@ -1,6 +1,6 @@
 /dataset
 /dataset_new
 /archive
-__pycache__/
+__pycache__
 .ipynb_checkpoints/
 *.pyc
