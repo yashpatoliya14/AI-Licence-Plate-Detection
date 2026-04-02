@@ -127,8 +127,8 @@ async def predict_license_plate(file: UploadFile = File(...)):
         contents = await file.read()
         pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
 
-        # Cap image size to save memory
-        max_dim = 1280
+        # Cap image size to save memory and avoid OOM (502 Bad Gateway)
+        max_dim = 640
         if max(pil_img.size) > max_dim:
             pil_img.thumbnail((max_dim, max_dim), Image.LANCZOS)
 
