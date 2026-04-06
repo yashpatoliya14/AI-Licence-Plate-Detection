@@ -36,6 +36,7 @@ def get_yolo_model():
         from ultralytics import YOLO
         try:
             _model = YOLO('./runs/detect/train9/weights/best.pt')
+            
             gc.collect()
             print("YOLO model loaded successfully")
         except Exception as e:
