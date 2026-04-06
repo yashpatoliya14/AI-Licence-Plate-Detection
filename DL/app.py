@@ -28,6 +28,24 @@ app.add_middleware(
 _model = None
 _reader = None
 
+# Store EasyOCR recognition weights in a persistent folder.
+# This prevents re-downloading models after each restart.
+EASYOCR_MODEL_DIR = os.path.join(os.path.dirname(__file__), "easyocr_models")
+os.makedirs(EASYOCR_MODEL_DIR, exist_ok=True)
+
+# If models were downloaded previously to the old (often ephemeral) directory,
+# copy them into the persistent cache folder to avoid re-downloading.
+_OLD_EASYOCR_MODEL_DIR = "/tmp/easyocr_models"
+try:
+    if os.path.isdir(_OLD_EASYOCR_MODEL_DIR) and os.path.exists(_OLD_EASYOCR_MODEL_DIR):
+        # Only copy when the new cache directory is empty.
+        if not any(os.scandir(EASYOCR_MODEL_DIR)):
+            import shutil
+            shutil.copytree(_OLD_EASYOCR_MODEL_DIR, EASYOCR_MODEL_DIR, dirs_exist_ok=True)
+except Exception:
+    # Non-fatal: if copy fails, EasyOCR will download as needed.
+    pass
+
 
 def get_yolo_model():
     """Lazy-load the YOLO model on first use."""
@@ -53,7 +71,7 @@ def get_ocr_reader():
             _reader = easyocr.Reader(
                 ['en'],
                 gpu=False,
-                model_storage_directory='/tmp/easyocr_models',
+                model_storage_directory=EASYOCR_MODEL_DIR,
                 download_enabled=True,
             )
             gc.collect()
