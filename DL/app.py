@@ -146,15 +146,20 @@ async def predict_license_plate(file: UploadFile = File(...)):
         contents = await file.read()
         pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
 
-        # Cap image size to save memory and avoid OOM (502 Bad Gateway)
-        max_dim = 640
+        # Cap image size to save memory and avoid OOM.
+        # Smaller cap reduces RAM and speeds up inference on low-tier instances.
+        max_dim = int(os.environ.get("MAX_IMG_DIM", "512"))
         if max(pil_img.size) > max_dim:
             pil_img.thumbnail((max_dim, max_dim), Image.LANCZOS)
 
-        img_np = np.array(pil_img)
-
-        # Run YOLO inference
-        results = model.predict(pil_img, verbose=False)
+        # Run YOLO inference (tuned for lower memory usage).
+        # - smaller imgsz reduces activation memory
+        # - max_det limits number of crops/OCR calls
+        # - conf reduces number of low-quality boxes
+        imgsz = int(os.environ.get("YOLO_IMGSZ", "416"))
+        conf_thres = float(os.environ.get("YOLO_CONF", "0.35"))
+        max_det = int(os.environ.get("YOLO_MAX_DET", "3"))
+        results = model.predict(pil_img, verbose=False, imgsz=imgsz, conf=conf_thres, max_det=max_det)
 
         detections = []
         for result in results:
@@ -163,20 +168,29 @@ async def predict_license_plate(file: UploadFile = File(...)):
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 conf = float(box.conf[0])
 
-                plate_crop = img_np[y1:y2, x1:x2]
-                best_text = extract_plate_text(plate_crop, reader)
-                base64_crop = get_base64_image(plate_crop)
+                # Crop using PIL (avoids keeping a full NumPy copy of the image in RAM).
+                # Convert only the small crop to NumPy for OCR.
+                x1 = max(0, x1)
+                y1 = max(0, y1)
+                x2 = min(pil_img.size[0], x2)
+                y2 = min(pil_img.size[1], y2)
+                if x2 <= x1 or y2 <= y1:
+                    continue
+
+                plate_crop_pil = pil_img.crop((x1, y1, x2, y2))
+                plate_crop_np = np.array(plate_crop_pil)
+                best_text = extract_plate_text(plate_crop_np, reader)
 
                 detections.append({
                     "text": best_text.strip(),
                     "confidence": conf,
-                    "image": base64_crop
+                    "bbox": [x1, y1, x2, y2],
                 })
 
         detections.sort(key=lambda x: x["confidence"], reverse=True)
 
         # Free memory
-        del img_np, pil_img, results, contents
+        del pil_img, results, contents
         gc.collect()
 
         return {"detections": detections}
